@@ -569,6 +569,14 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 
 					logger.debug({ jid }, 'adding device identity')
 				}
+				
+				
+				(stanza.content as BinaryNode[]).unshift({
+    attrs: {
+        biz_bot: '1'
+    },
+    tag: "bot"
+});
 
 				if(additionalNodes && additionalNodes.length > 0) {
 					(stanza.content as BinaryNode[]).push(...additionalNodes)
@@ -855,14 +863,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 				const isPinMsg = 'pin' in content && !!content.pin
 				const isPollMessage = 'poll' in content && !!content.poll
 				const additionalAttributes: BinaryNodeAttributes = { }
-				const additionalNodes: BinaryNode[] = [
-				    {
-                        attrs: {
-                            biz_bot: '1'
-                        },
-                        tag: "bot"
-                    }
-				]
+				const additionalNodes: BinaryNode[] = []
 				// required for delete
 				if(isDeleteMsg) {
 					// if the chat is a group, and I am not the author, then delete the message as an admin
