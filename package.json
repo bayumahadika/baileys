@@ -1,5 +1,5 @@
 {
-  "name": "baileys",
+  "name": "@bayumahadika/baileys",
   "version": "6.8.0",
   "description": "A WebSockets library for interacting with WhatsApp Web",
   "keywords": [
