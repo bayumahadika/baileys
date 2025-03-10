@@ -418,6 +418,7 @@ export const makeSocket = (config: SocketConfig) => {
 			if(diff > keepAliveIntervalMs + 5000) {
 				end(new Boom('Connection was lost', { statusCode: DisconnectReason.connectionLost }))
 			} else if(ws.isOpen) {
+				// if its all good, send a keep alive request
 				sendNode({
         tag: "iq",
         attrs: {
@@ -442,7 +443,6 @@ export const makeSocket = (config: SocketConfig) => {
           },
         ],
       }).catch();
-// if its all good, send a keep alive request
 				query(
 					{
 						tag: 'iq',
