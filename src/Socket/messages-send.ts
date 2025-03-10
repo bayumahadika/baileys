@@ -10,6 +10,7 @@ import { areJidsSameUser, BinaryNode, BinaryNodeAttributes, getBinaryNodeChild, 
 import { USyncQuery, USyncUser } from '../WAUSync'
 import { makeGroupsSocket } from './groups'
 import { makeNewsletterSocket } from './newsletter'
+import ListType = proto.Message.ListMessage.ListType;
 
 export const makeMessagesSocket = (config: SocketConfig) => {
 	const {
@@ -328,13 +329,14 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 		const isGroup = server === 'g.us'
 		const isStatus = jid === statusJid
 		const isLid = server === 'lid'
+		const isNewsletter = server === 'newsletter'
 
 		msgId = msgId || generateMessageIDV2(sock.user?.id)
 		useUserDevicesCache = useUserDevicesCache !== false
 		useCachedGroupMetadata = useCachedGroupMetadata !== false && !isStatus
 
 		const participants: BinaryNode[] = []
-		const destinationJid = (!isStatus) ? jidEncode(user, isLid ? 'lid' : isGroup ? 'g.us' : 's.whatsapp.net') : statusJid
+		const destinationJid = (!isStatus) ? jidEncode(user, isLid ? 'lid' : isGroup ? 'g.us' : isNewsletter ? 'newsletter' : 's.whatsapp.net') : statusJid
 		const binaryNodeContent: BinaryNode[] = []
 		const devices: JidWithDevice[] = []
 
@@ -451,6 +453,27 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 					})
 
 					await authState.keys.set({ 'sender-key-memory': { [jid]: senderKeyMap } })
+				} else if (isNewsletter) {
+					// Message edit
+					if (message.protocolMessage?.editedMessage) {
+						msgId = message.protocolMessage.key?.id!
+						message = message.protocolMessage.editedMessage
+					}
+
+					// Message delete
+					if (message.protocolMessage?.type === proto.Message.ProtocolMessage.Type.REVOKE) {
+						msgId = message.protocolMessage.key?.id!
+						message = {}
+					}
+
+					const patched = await patchMessageBeforeSending(message, [])
+					const bytes = proto.Message.encode(patched).finish()
+
+					binaryNodeContent.push({
+						tag: 'plaintext',
+						attrs: mediaType ? { mediatype: mediaType } : {},
+						content: bytes
+					})
 				} else {
 					const { user: meUser } = jidDecode(meId)!
 
@@ -549,6 +572,40 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 
 				if(additionalNodes && additionalNodes.length > 0) {
 					(stanza.content as BinaryNode[]).push(...additionalNodes)
+				} else {
+                   if((isJidGroup(jid) || isJidUser(jid)) && (message?.viewOnceMessage ? message?.viewOnceMessage : message?.viewOnceMessageV2 ? message?.viewOnceMessageV2 : message?.viewOnceMessageV2Extension ? message?.viewOnceMessageV2Extension : message?.ephemeralMessage ? message?.ephemeralMessage : message?.templateMessage ? message?.templateMessage : message?.interactiveMessage ? message?.interactiveMessage : message?.buttonsMessage)) {
+                      (stanza.content as BinaryNode[]).push({
+						tag: 'biz',
+						attrs: {},
+					    content: [{
+							tag: 'interactive',
+							attrs: {
+				   				type: 'native_flow',
+			      				 v: '1'
+							},
+							content: [{
+			   					tag: 'native_flow',
+			   					attrs: { name: 'quick_reply' }
+							}]
+    					}]
+				    });
+				  }
+               }
+
+				const buttonType = getButtonType(message)
+				if(buttonType) {
+					(stanza.content as BinaryNode[]).push({
+						tag: 'biz',
+						attrs: { },
+						content: [
+							{
+								tag: buttonType,
+								attrs: getButtonArgs(message),
+							}
+						]
+					})
+
+					logger.debug({ jid }, 'adding business node')
 				}
 
 				logger.debug({ msgId }, `sending message to ${participants.length} devices`)
@@ -562,11 +619,25 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 
 
 	const getMessageType = (message: proto.IMessage) => {
-		if(message.pollCreationMessage || message.pollCreationMessageV2 || message.pollCreationMessageV3) {
-			return 'poll'
+		if (message.viewOnceMessage) {
+			return getMessageType(message.viewOnceMessage.message!)
+		} else if (message.viewOnceMessageV2) {
+			return getMessageType(message.viewOnceMessageV2.message!)
+		} else if (message.viewOnceMessageV2Extension) {
+			return getMessageType(message.viewOnceMessageV2Extension.message!)
+		} else if (message.ephemeralMessage) {
+			return getMessageType(message.ephemeralMessage.message!)
+		} else if (message.documentWithCaptionMessage) {
+			return getMessageType(message.documentWithCaptionMessage.message!)
+		} else if (message.reactionMessage) {
+			return 'reaction'
+		} else if (message.pollCreationMessage || message.pollCreationMessageV2 || message.pollCreationMessageV3 || message.pollUpdateMessage) {
+			return 'reaction'
+		} else if (getMediaType(message)) {
+			return 'media'
+		} else {
+			return 'text'
 		}
-
-		return 'text'
 	}
 
 	const getMediaType = (message: proto.IMessage) => {
@@ -600,6 +671,36 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 			return 'native_flow_response'
 		} else if(message.groupInviteMessage) {
 			return 'url'
+		}
+	}
+	
+	const getButtonType = (message: proto.IMessage) => {
+		if(message.buttonsMessage) {
+			return 'buttons'
+		} else if(message.buttonsResponseMessage) {
+			return 'buttons_response'
+		} else if(message.interactiveResponseMessage) {
+			return 'interactive_response'
+		} else if(message.listMessage) {
+			return 'list'
+		} else if(message.listResponseMessage) {
+			return 'list_response'
+		}
+	}
+
+	const getButtonArgs = (message: proto.IMessage): BinaryNode['attrs'] => {
+		if(message.templateMessage) {
+			// TODO: Add attributes
+			return {}
+		} else if(message.listMessage) {
+			const type = message.listMessage.listType
+			if(!type) {
+				throw new Boom('Expected list type inside message')
+			}
+
+			return { v: '2', type: ListType[type].toLowerCase() }
+		} else {
+			return {}
 		}
 	}
 
