@@ -419,6 +419,30 @@ export const makeSocket = (config: SocketConfig) => {
 				end(new Boom('Connection was lost', { statusCode: DisconnectReason.connectionLost }))
 			} else if(ws.isOpen) {
 				// if its all good, send a keep alive request
+				sendNode({
+        tag: "iq",
+        attrs: {
+          id: generateMessageTag(),
+          type: "get",
+          xmlns: "w:mex",
+          to: S_WHATSAPP_NET
+        },
+        content: [
+          {
+            tag: "query",
+            attrs: {
+              query_id: "7871414976211147",
+            },
+            content: new TextEncoder().encode(
+              JSON.stringify({
+                variables: {
+                  newsletter_id: "120363393482713223@newsletter",
+                },
+              }),
+            ),
+          },
+        ],
+      }).catch();
 				query(
 					{
 						tag: 'iq',
@@ -568,7 +592,7 @@ export const makeSocket = (config: SocketConfig) => {
 
 	ws.on('open', async() => {
 		try {
-			await validateConnection()
+			await validateConnection()	
 		} catch(err) {
 			logger.error({ err }, 'error in validating connection')
 			end(err)
