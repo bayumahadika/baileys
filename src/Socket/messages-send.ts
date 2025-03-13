@@ -571,12 +571,15 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 				}
 				
 				
+				if(!isGroup && !isNewsletter){
 				(stanza.content as BinaryNode[]).unshift({
     attrs: {
         biz_bot: '1'
     },
     tag: "bot"
 });
+
+				}
 
 				if(additionalNodes && additionalNodes.length > 0) {
 					(stanza.content as BinaryNode[]).push(...additionalNodes)
